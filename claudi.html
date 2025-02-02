@@ -1,0 +1,299 @@
+
+    <div id="game-container" style="text-align: center; font-family: Arial; position: relative; user-select: none; -webkit-user-select: none; width: 300px; margin: auto;">
+        <div id="score" style="font-size: 24px; margin: 10px;">Score: 0</div>
+        <div id="game-board" style="display: inline-block; width: 300px; height: 600px; background: black; position: relative; touch-action: none;"></div>
+        <!-- Paused overlay (hidden by default) -->
+        <div id="paused-overlay" style="display: none; position: absolute; top: 10px; left: 50%; transform: translateX(-50%); width: 300px; height: 600px; background: rgba(0,0,0,0.5); color: white; font-size: 36px; text-align: center; line-height: 600px; pointer-events: none;">Paused</div>
+        <br>
+        <button onclick="window.tetrisGame.restart()" style="font-size: 20px; margin: 5px;">Restart</button>
+        
+        <!-- Instruction overlay shown before the game starts -->
+        <div id="instructions-overlay" style="position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 300px; height: 600px; background: rgba(0,0,0,0.8); color: white; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 2000;">
+            <h1 style="margin: 10px;">Welcome to TETRIS</h1>
+            <p style="margin: 5px;">Tap: Rotate the block.</p>
+            <p style="margin: 5px;">Swipe left/right: Move the block.</p>
+            <p style="margin: 5px;">Swipe down: Perform a hard drop.</p>
+            <p style="margin: 5px;">Two‑finger tap: Toggle pause/resume.</p>
+            <button onclick="hideInstructions()" style="font-size: 20px; margin-top: 20px; padding: 10px 20px;">Start</button>
+        </div>
+    </div>
+
+    <script>
+    // Add a viewport meta tag to disable zooming if not already present
+    if (!document.querySelector('meta[name="viewport"]')) {
+      var meta = document.createElement('meta');
+      meta.name = "viewport";
+      meta.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no";
+      document.getElementsByTagName('head')[0].appendChild(meta);
+    }
+
+    class TetrisGame {
+        constructor() {
+            this.BOARD_WIDTH = 10;
+            this.BOARD_HEIGHT = 20;
+            this.BLOCK_SIZE = 30;
+            this.board = Array(this.BOARD_HEIGHT).fill().map(() => Array(this.BOARD_WIDTH).fill(0));
+            this.score = 0;
+            this.gameOver = false;
+            // Start paused until the user dismisses the instructions
+            this.paused = true;
+            this.currentPiece = null;
+            this.gameBoard = document.getElementById('game-board');
+            
+            this.PIECES = [
+                { shape: [[1,1,1,1]], color: '#00f0f0' },
+                { shape: [[1,1],[1,1]], color: '#f0f000' },
+                { shape: [[0,1,0],[1,1,1]], color: '#a000f0' },
+                { shape: [[1,1,0],[0,1,1]], color: '#00f000' },
+                { shape: [[0,1,1],[1,1,0]], color: '#f00000' },
+                { shape: [[1,0,0],[1,1,1]], color: '#0000f0' },
+                { shape: [[0,0,1],[1,1,1]], color: '#f0a000' }
+            ];
+            
+            this.createNewPiece();
+            this.drawBoard();
+            this.setupTouchControls();
+        }
+
+        createNewPiece() {
+            const piece = this.PIECES[Math.floor(Math.random() * this.PIECES.length)];
+            this.currentPiece = {
+                shape: piece.shape,
+                color: piece.color,
+                x: Math.floor(this.BOARD_WIDTH / 2) - Math.floor(piece.shape[0].length / 2),
+                y: 0
+            };
+            if (!this.isValidMove(this.currentPiece.shape, this.currentPiece.x, this.currentPiece.y)) {
+                this.gameOver = true;
+                alert('Game Over! Score: ' + this.score);
+            }
+        }
+
+        isValidMove(shape, x, y) {
+            for (let row = 0; row < shape.length; row++) {
+                for (let col = 0; col < shape[row].length; col++) {
+                    if (shape[row][col]) {
+                        const newX = x + col;
+                        const newY = y + row;
+                        if (newX < 0 || newX >= this.BOARD_WIDTH || newY >= this.BOARD_HEIGHT) return false;
+                        if (newY >= 0 && this.board[newY][newX]) return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        rotate() {
+            if (this.gameOver || this.paused) return;
+            const rotated = this.currentPiece.shape[0].map((_, i) =>
+                this.currentPiece.shape.map(row => row[i]).reverse()
+            );
+            if (this.isValidMove(rotated, this.currentPiece.x, this.currentPiece.y)) {
+                this.currentPiece.shape = rotated;
+                this.drawBoard();
+            }
+        }
+
+        moveLeft() {
+            if (this.gameOver || this.paused) return;
+            if (this.isValidMove(this.currentPiece.shape, this.currentPiece.x - 1, this.currentPiece.y)) {
+                this.currentPiece.x--;
+                this.drawBoard();
+            }
+        }
+
+        moveRight() {
+            if (this.gameOver || this.paused) return;
+            if (this.isValidMove(this.currentPiece.shape, this.currentPiece.x + 1, this.currentPiece.y)) {
+                this.currentPiece.x++;
+                this.drawBoard();
+            }
+        }
+
+        drop() {
+            if (this.gameOver || this.paused) return;
+            while (this.isValidMove(this.currentPiece.shape, this.currentPiece.x, this.currentPiece.y + 1)) {
+                this.currentPiece.y++;
+            }
+            this.mergePiece();
+            this.drawBoard();
+        }
+
+        mergePiece() {
+            this.currentPiece.shape.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value) {
+                        this.board[this.currentPiece.y + y][this.currentPiece.x + x] = this.currentPiece.color;
+                    }
+                });
+            });
+            this.clearLines();
+            this.createNewPiece();
+        }
+
+        clearLines() {
+            for (let row = this.BOARD_HEIGHT - 1; row >= 0; row--) {
+                if (this.board[row].every(cell => cell !== 0)) {
+                    this.board.splice(row, 1);
+                    this.board.unshift(Array(this.BOARD_WIDTH).fill(0));
+                    this.score += 100;
+                    document.getElementById('score').textContent = 'Score: ' + this.score;
+                }
+            }
+        }
+
+        drawBoard() {
+            this.gameBoard.innerHTML = '';
+            const displayBoard = JSON.parse(JSON.stringify(this.board));
+
+            if (this.currentPiece && !this.gameOver) {
+                this.currentPiece.shape.forEach((row, y) => {
+                    row.forEach((value, x) => {
+                        if (value) {
+                            const boardY = this.currentPiece.y + y;
+                            const boardX = this.currentPiece.x + x;
+                            if (boardY >= 0 && boardY < this.BOARD_HEIGHT) {
+                                displayBoard[boardY][boardX] = this.currentPiece.color;
+                            }
+                        }
+                    });
+                });
+            }
+
+            displayBoard.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    const block = document.createElement('div');
+                    block.style.position = 'absolute';
+                    block.style.width = '28px';
+                    block.style.height = '28px';
+                    block.style.border = '1px solid #333';
+                    block.style.backgroundColor = value || '#000';
+                    block.style.left = (x * this.BLOCK_SIZE) + 'px';
+                    block.style.top = (y * this.BLOCK_SIZE) + 'px';
+                    this.gameBoard.appendChild(block);
+                });
+            });
+        }
+
+        startGameLoop() {
+            if (this.gameInterval) clearInterval(this.gameInterval);
+            this.gameInterval = setInterval(() => {
+                if (this.gameOver || this.paused) return;
+                if (this.isValidMove(this.currentPiece.shape, this.currentPiece.x, this.currentPiece.y + 1)) {
+                    this.currentPiece.y++;
+                } else {
+                    this.mergePiece();
+                }
+                this.drawBoard();
+            }, 1000);
+        }
+
+        restart() {
+            this.board = Array(this.BOARD_HEIGHT).fill().map(() => Array(this.BOARD_WIDTH).fill(0));
+            this.score = 0;
+            this.gameOver = false;
+            document.getElementById('score').textContent = 'Score: 0';
+            this.createNewPiece();
+            // Resume the game if it was paused.
+            if (this.paused) {
+                this.paused = false;
+                document.getElementById('paused-overlay').style.display = 'none';
+            }
+            this.startGameLoop();
+            this.drawBoard();
+        }
+        
+        togglePause() {
+            if (this.gameOver) return;
+            if (this.paused) {
+                // Resume the game
+                this.paused = false;
+                this.startGameLoop();
+                document.getElementById('paused-overlay').style.display = 'none';
+            } else {
+                // Pause the game
+                this.paused = true;
+                clearInterval(this.gameInterval);
+                document.getElementById('paused-overlay').style.display = 'block';
+            }
+        }
+        
+        resumeGame() {
+            if (this.gameOver) return;
+            this.paused = false;
+            this.startGameLoop();
+            document.getElementById('paused-overlay').style.display = 'none';
+        }
+
+        setupTouchControls() {
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let touchStartTime = 0;
+            let multiTouch = false;
+            
+            this.gameBoard.addEventListener('touchstart', (event) => {
+                event.preventDefault();
+                if (event.touches.length === 2) {
+                    multiTouch = true;
+                    touchStartTime = Date.now();
+                } else if (event.touches.length === 1) {
+                    multiTouch = false;
+                    touchStartX = event.touches[0].clientX;
+                    touchStartY = event.touches[0].clientY;
+                    touchStartTime = Date.now();
+                }
+            }, false);
+            
+            this.gameBoard.addEventListener('touchend', (event) => {
+                event.preventDefault();
+                let touchEndTime = Date.now();
+                let elapsedTime = touchEndTime - touchStartTime;
+                
+                if (multiTouch) {
+                    // Two‑finger tap detected (if quick)
+                    if (elapsedTime < 300) {
+                        window.tetrisGame.togglePause();
+                    }
+                    multiTouch = false;
+                    return;
+                }
+                
+                if (event.changedTouches.length > 0) {
+                    let touchEndX = event.changedTouches[0].clientX;
+                    let touchEndY = event.changedTouches[0].clientY;
+                    let dx = touchEndX - touchStartX;
+                    let dy = touchEndY - touchStartY;
+                    let absDx = Math.abs(dx);
+                    let absDy = Math.abs(dy);
+                    
+                    // If the movement is minimal, treat it as a tap.
+                    if (absDx < 10 && absDy < 10) {
+                        window.tetrisGame.rotate();
+                    } else if (absDx > absDy && absDx > 30) {
+                        // Horizontal swipe: move left/right.
+                        if (dx > 0) {
+                            window.tetrisGame.moveRight();
+                        } else {
+                            window.tetrisGame.moveLeft();
+                        }
+                    } else if (absDy > absDx && dy > 30) {
+                        // Swipe down: hard drop.
+                        window.tetrisGame.drop();
+                    } else {
+                        // If gesture is ambiguous, default to a tap.
+                        window.tetrisGame.rotate();
+                    }
+                }
+            }, false);
+        }
+    }
+
+    // Global function to hide the instructions overlay and start the game.
+    function hideInstructions() {
+        document.getElementById('instructions-overlay').style.display = 'none';
+        window.tetrisGame.resumeGame();
+    }
+
+    window.tetrisGame = new TetrisGame();
+    </script>
+    
